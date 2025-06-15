@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OBI Explorer Interativo: Análise de Exercícios (2021-2024)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Warm Neutrals & Soft Teal -->
+    <!-- Application Structure Plan: A single-page dashboard application designed for task-oriented exploration. The core is a control panel with multiple filters (Ano, Nível, Fase, Dificuldade, Pesquisa) that allows users to dynamically query the OBI exercise dataset. The results are displayed in three coordinated views: 1) A statistical overview with key metrics and two charts (Distribuição de Dificuldade, Tópicos por Frequência) to provide a high-level summary. 2) A detailed, filterable HTML table showing the raw data for in-depth analysis. 3) An informational section with contextual analysis and study recommendations from the report. This structure was chosen because it transforms the static report into a powerful, non-linear exploration tool. It empowers users (students/coaches) to answer specific questions like "What are the most common 'Difícil' topics in Nível 2, Fase 3?" or "Show me all 'Fácil' exercises from 2024", which is far more efficient than manually scanning the original document. -->
+    <!-- Visualization & Content Choices: 
+        - Goal: Inform (High-level summary) -> Presentation: Key stat cards (e.g., 'Total de Exercícios') and two charts. -> Viz: A Donut chart for 'Distribuição de Dificuldade' to show proportions of a whole. A horizontal Bar chart for 'Tópicos por Frequência' to easily compare the most common content areas. -> Interaction: Charts are dynamically updated based on filters. Tooltips provide precise numbers. -> Justification: These visuals give an immediate, quantitative overview of the filtered data. -> Library: Chart.js (Canvas-based).
+        - Goal: Organize/Explore (Detailed view) -> Presentation: An interactive HTML table. -> Interaction: The table's content is entirely determined by the filter controls. Users can also sort columns. -> Justification: A table is the most effective way to present structured, multi-attribute data for detailed inspection. -> Library/Method: Vanilla JS DOM manipulation.
+        - Goal: Analyze/Contextualize -> Presentation: Thematically organized text blocks and a dynamic list of topics. -> Interaction: Text blocks provide static context, while the 'Principais Conteúdos' list is generated from the filtered data, reinforcing key topics. -> Justification: This provides the qualitative insights from the report, giving meaning to the quantitative data seen in the charts and table. -> Library/Method: Vanilla JS DOM manipulation.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .chart-container { position: relative; width: 100%; max-width: 500px; margin-left: auto; margin-right: auto; height: 320px; max-height: 40vh; }
+        @media (min-width: 768px) { .chart-container { height: 350px; } }
+        .nav-button { transition: all 0.2s ease-in-out; }
+        .nav-button.active { background-color: #0d9488; color: white; }
+        .nav-button:not(.active):hover { background-color: #f0fdfa; }
+        .filter-checkbox:checked + label { border-color: #0d9488; background-color: #ccfbf1; }
+        .table-sortable th { cursor: pointer; }
+        .table-sortable th:hover .sort-icon { opacity: 1; }
+        .sort-icon { opacity: 0.3; transition: opacity 0.2s; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-teal-800">OBI Explorer Interativo</h1>
+            <p class="mt-2 text-slate-600 max-w-3xl mx-auto">Uma análise interativa dos exercícios da Olimpíada Brasileira de Informática (Modalidade Programação) de 2021 a 2024.</p>
+        </header>
+
+        <main>
+            <div id="app-container" class="bg-white rounded-xl shadow-lg p-4 sm:p-6 md:p-8">
+                
+                <!-- Navigation -->
+                <div class="mb-8 border-b border-slate-200">
+                    <nav class="flex flex-wrap -mb-px" aria-label="Tabs">
+                        <button onclick="changeTab('dashboard')" class="nav-button active text-teal-700 font-semibold border-b-2 border-transparent hover:border-slate-300 whitespace-nowrap py-4 px-4 text-sm" data-tab-toggle>
+                            📊 Dashboard e Filtros
+                        </button>
+                        <button onclick="changeTab('analysis')" class="nav-button text-slate-500 hover:text-teal-700 border-b-2 border-transparent hover:border-slate-300 whitespace-nowrap py-4 px-4 text-sm" data-tab-toggle>
+                            💡 Análise e Tendências
+                        </button>
+                        <button onclick="changeTab('recommendations')" class="nav-button text-slate-500 hover:text-teal-700 border-b-2 border-transparent hover:border-slate-300 whitespace-nowrap py-4 px-4 text-sm" data-tab-toggle>
+                            🚀 Recomendações de Estudo
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Tab Content -->
+                <div id="dashboard" class="tab-content">
+                    <section id="filters" class="mb-8">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            
+                            <div>
+                                <h3 class="font-semibold mb-2 text-slate-700">Ano</h3>
+                                <div id="year-filter" class="flex flex-wrap gap-2"></div>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold mb-2 text-slate-700">Nível</h3>
+                                <div id="level-filter" class="flex flex-wrap gap-2"></div>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold mb-2 text-slate-700">Fase</h3>
+                                <div id="phase-filter" class="flex flex-wrap gap-2"></div>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold mb-2 text-slate-700">Dificuldade</h3>
+                                <div id="difficulty-filter" class="flex flex-wrap gap-2"></div>
+                            </div>
+                        </div>
+                        <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <input type="text" id="search-input" class="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500" placeholder="🔎 Pesquisar por nome ou conteúdo...">
+                            <button id="reset-filters" class="w-full md:w-auto justify-self-start bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 px-6 rounded-lg transition-colors">Limpar Filtros</button>
+                        </div>
+                    </section>
+                    
+                    <section id="stats" class="mb-12 p-6 bg-slate-100 rounded-lg">
+                         <div class="text-center mb-6">
+                            <h2 class="text-2xl font-bold text-teal-800">Visão Geral dos Exercícios Selecionados</h2>
+                            <p class="text-slate-600 mt-1">Os gráficos e a tabela abaixo são atualizados dinamicamente com base nos filtros aplicados. Explore os dados para identificar padrões e focar seus estudos.</p>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center mb-8">
+                            <div class="bg-white p-4 rounded-lg shadow">
+                                <h4 class="text-sm font-semibold text-slate-500">Exercícios Encontrados</h4>
+                                <p id="total-exercises" class="text-3xl font-bold text-teal-600"></p>
+                            </div>
+                            <div class="bg-white p-4 rounded-lg shadow">
+                                <h4 class="text-sm font-semibold text-slate-500">Média de Dificuldade</h4>
+                                <p id="avg-difficulty" class="text-3xl font-bold text-teal-600"></p>
+                            </div>
+                             <div class="bg-white p-4 rounded-lg shadow">
+                                <h4 class="text-sm font-semibold text-slate-500">Tópico Mais Comum</h4>
+                                <p id="most-common-topic" class="text-xl md:text-2xl font-bold text-teal-600 h-10 flex items-center justify-center"></p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+                            <div>
+                                <h3 class="text-lg font-semibold text-center mb-2">Distribuição por Dificuldade</h3>
+                                <div class="chart-container">
+                                    <canvas id="difficulty-chart"></canvas>
+                                </div>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-center mb-2">Top 10 Tópicos por Frequência</h3>
+                                <div class="chart-container">
+                                    <canvas id="content-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section id="exercise-table">
+                         <h2 class="text-2xl font-bold text-teal-800 text-center">Tabela de Exercícios</h2>
+                         <p class="text-slate-600 mt-1 mb-6 text-center">Clique nos cabeçalhos para ordenar. Use os filtros acima para refinar a busca.</p>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full bg-white border border-slate-200 table-sortable">
+                                <thead class="bg-slate-100">
+                                    <tr>
+                                        <th data-sort="ano" class="py-3 px-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Ano <span class="sort-icon">↕️</span></th>
+                                        <th data-sort="nivel" class="py-3 px-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Nível <span class="sort-icon">↕️</span></th>
+                                        <th data-sort="fase" class="py-3 px-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Fase <span class="sort-icon">↕️</span></th>
+                                        <th data-sort="nome" class="py-3 px-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Nome do Exercício <span class="sort-icon">↕️</span></th>
+                                        <th data-sort="dificuldade" class="py-3 px-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Dificuldade <span class="sort-icon">↕️</span></th>
+                                        <th data-sort="conteudo" class="py-3 px-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Principal Conteúdo <span class="sort-icon">↕️</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-body" class="divide-y divide-slate-200">
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+
+                <div id="analysis" class="tab-content hidden prose max-w-none">
+                    <h2 class="text-2xl font-bold text-teal-800">Análise de Tópicos e Tendências</h2>
+                    <p>Esta seção detalha os principais conteúdos e as tendências observadas nos problemas da OBI, ajudando a entender a progressão da complexidade. A análise reflete os dados consolidados no relatório original, fornecendo um guia sobre o que esperar em cada nível da competição.</p>
+                    
+                    <h3>Tópicos Fundamentais (Nível Júnior e Nível 1 - Fases Iniciais)</h3>
+                    <p>Nos níveis de entrada, os problemas consistentemente avaliam o domínio dos fundamentos da programação. A sólida compreensão e aplicação destes tópicos são cruciais para avançar.</p>
+                    <ul>
+                        <li><strong>Lógica de Programação:</strong> Traduzir um problema em uma sequência de passos lógicos.</li>
+                        <li><strong>Estruturas Condicionais (if/else):</strong> Tomada de decisões baseada em condições.</li>
+                        <li><strong>Laços de Repetição (for/while):</strong> Execução iterativa de blocos de código para processar coleções de dados ou realizar simulações.</li>
+                        <li><strong>Variáveis, Tipos de Dados e Operadores:</strong> Uso adequado de inteiros, reais, caracteres e realização de cálculos.</li>
+                    </ul>
+
+                    <h3>Tópicos Intermediários (Nível 1 - Fases Avançadas e Nível 2 - Fases Iniciais)</h3>
+                    <p>À medida que os competidores avançam, a OBI introduz estruturas de dados mais complexas e a necessidade de pensar em eficiência algorítmica.</p>
+                    <ul>
+                        <li><strong>Arrays (Vetores) e Matrizes:</strong> Armazenamento e manipulação de coleções de dados.</li>
+                        <li><strong>Strings e Manipulação Avançada:</strong> Processamento de cadeias de caracteres e busca por padrões.</li>
+                        <li><strong>Funções e Recursão Simples:</strong> Modularização do código e resolução de problemas por meio da divisão em subproblemas.</li>
+                        <li><strong>Noções de Complexidade e Ordenação:</strong> Introdução à eficiência de algoritmos e uso de algoritmos de ordenação e busca (linear e binária).</li>
+                    </ul>
+
+                    <h3>Tópicos Avançados (Nível 2 - Fases Avançadas)</h3>
+                    <p>Nas fases mais avançadas, a OBI testa a capacidade do aluno de aplicar paradigmas algorítmicos sofisticados e estruturas de dados avançadas, exigindo um estudo aprofundado.</p>
+                    <ul>
+                        <li><strong>Algoritmos Gulosos (Greedy):</strong> Tomada de decisões locais ótimas.</li>
+                        <li><strong>Programação Dinâmica (PD):</strong> Resolução de problemas complexos quebrando-os em subproblemas sobrepostos.</li>
+                        <li><strong>Teoria dos Grafos:</strong> Busca em Largura (BFS), Busca em Profundidade (DFS), caminhos mínimos (Dijkstra), árvores geradoras mínimas, etc.</li>
+                        <li><strong>Estruturas de Dados Avançadas:</strong> Pilhas, Filas, Heaps, Sets, Maps e Union-Find.</li>
+                        <li><strong>Teoria dos Números e Geometria Computacional Básica.</strong></li>
+                    </ul>
+                    
+                    <h3>Tendências na Formulação dos Problemas</h3>
+                    <p>Além dos conteúdos, a forma como os problemas são apresentados também segue certas tendências:</p>
+                    <ul>
+                        <li><strong>Narrativas Envolventes (Storytelling):</strong> Problemas contextualizados em pequenas histórias, exigindo boa capacidade de interpretação.</li>
+                        <li><strong>Casos de Borda e "Pegadinhas":</strong> Inclusão de casos limite que devem ser tratados corretamente para obter a pontuação máxima.</li>
+                        <li><strong>Uso de Subtarefas:</strong> Uma estrutura pedagógica que permite pontuações parciais com soluções mais simples, incentivando uma abordagem incremental.</li>
+                    </ul>
+
+                </div>
+                
+                <div id="recommendations" class="tab-content hidden prose max-w-none">
+                    <h2 class="text-2xl font-bold text-teal-800">Recomendações para Preparação</h2>
+                    <p>Com base na análise dos exercícios, estas recomendações podem ser úteis para estudantes que visam um bom desempenho na OBI. Uma preparação estruturada e consistente é o caminho para o sucesso.</p>
+
+                    <h3>1. Adote um Plano de Estudos Progressivo</h3>
+                    <p>É fundamental respeitar a progressão natural dos conteúdos. Não tente pular etapas.</p>
+                    <ul>
+                        <li><strong>Comece pelos Fundamentos:</strong> Domine lógica, condicionais, laços e entrada/saída. Pratique intensamente com problemas do Nível Júnior e da Fase 1 do Nível 1.</li>
+                        <li><strong>Avance Gradualmente:</strong> Progrida para tópicos intermediários (arrays, strings, recursão) e resolva problemas de fases subsequentes.</li>
+                        <li><strong>Use Recursos Oficiais:</strong> Utilize os "Cadernos de Tarefas" das edições anteriores da OBI como a principal fonte de problemas para prática.</li>
+                    </ul>
+
+                    <h3>2. Foco na Resolução de Problemas e Análise de Soluções</h3>
+                    <p>A habilidade em olimpíadas é desenvolvida primariamente através da prática de resolução de problemas.</p>
+                    <ul>
+                        <li><strong>Tente Resolver Sozinho Primeiro:</strong> Dedique tempo suficiente para pensar em diferentes abordagens antes de consultar qualquer solução. O esforço para encontrar o caminho é parte crucial do aprendizado.</li>
+                        <li><strong>Analise Soluções (Depois de Tentar):</strong> Após resolver ou esgotar suas tentativas, analise as soluções oficiais e comentários de especialistas. Este processo permite aprender novas técnicas, entender otimizações e identificar erros de raciocínio.</li>
+                    </ul>
+
+                    <h3>3. Pratique com Consistência e Faça Simulados</h3>
+                    <p>A consistência é a chave para a consolidação do conhecimento.</p>
+                    <ul>
+                        <li><strong>Mantenha uma Rotina:</strong> Resolva problemas regularmente, mesmo que por pouco tempo, para manter a mente afiada.</li>
+                        <li><strong>Simule as Condições da Prova:</strong> Realize simulados utilizando provas antigas completas, respeitando rigorosamente os tempos estipulados. Isso ajuda a desenvolver a gestão do tempo, a resistência sob pressão e a estratégia de prova.</li>
+                    </ul>
+                    
+                    <h3>4. Participe de Comunidades e Cursos</h3>
+                    <p>Aprender em colaboração pode acelerar muito o seu desenvolvimento.</p>
+                    <ul>
+                        <li><strong>Junte-se a Comunidades de Estudo:</strong> Participe de fóruns online e grupos de estudo. Discutir problemas com outros estudantes expõe você a diferentes formas de pensar.</li>
+                        <li><strong>Considere Cursos Preparatórios:</strong> Cursos e treinamentos específicos para olimpíadas oferecem um currículo estruturado e orientação de quem já tem experiência.</li>
+                    </ul>
+                </div>
+            </div>
+        </main>
+    </div>
+
+<script>
+const OBI_DATA = [
+    { ano: 2024, nivel: 'Júnior', fase: 1, nome: 'Ogro', dificuldade: 'Fácil', conteudo: 'Condicionais, Aritmética' },
+    { ano: 2024, nivel: 'Júnior', fase: 1, nome: 'Concurso', dificuldade: 'Fácil', conteudo: 'Condicionais, Lógica simples' },
+    { ano: 2024, nivel: 'Júnior', fase: 1, nome: 'Premiação', dificuldade: 'Fácil', conteudo: 'Loops, Condicionais' },
+    { ano: 2024, nivel: 'Nível 1', fase: 1, nome: 'Ogro', dificuldade: 'Fácil', conteudo: 'Condicionais, Aritmética' },
+    { ano: 2024, nivel: 'Nível 1', fase: 1, nome: 'Concurso', dificuldade: 'Fácil', conteudo: 'Condicionais, Lógica simples' },
+    { ano: 2024, nivel: 'Nível 1', fase: 1, nome: 'Bactérias', dificuldade: 'Médio', conteudo: 'Simulação, Loops' },
+    { ano: 2024, nivel: 'Nível 2', fase: 1, nome: 'Contas a Pagar', dificuldade: 'Médio', conteudo: 'Ordenação, Estruturas de Dados' },
+    { ano: 2024, nivel: 'Nível 2', fase: 1, nome: 'Decifra', dificuldade: 'Médio', conteudo: 'Manipulação de Strings, Mapeamento' },
+    { ano: 2024, nivel: 'Nível 2', fase: 1, nome: 'Pares de Pontos', dificuldade: 'Médio', conteudo: 'Geometria, Loops aninhados' },
+    { ano: 2024, nivel: 'Nível 2', fase: 1, nome: 'Subsequências', dificuldade: 'Difícil', conteudo: 'Programação Dinâmica' },
+    { ano: 2024, nivel: 'Júnior', fase: 2, nome: 'Placas', dificuldade: 'Fácil', conteudo: 'Manipulação de Strings, Condicionais' },
+    { ano: 2024, nivel: 'Júnior', fase: 2, nome: 'Campeonato', dificuldade: 'Médio', conteudo: 'Simulação, Contagem, Arrays' },
+    { ano: 2024, nivel: 'Júnior', fase: 2, nome: 'Cápsulas', dificuldade: 'Médio', conteudo: 'Algoritmo Guloso, Ordenação' },
+    { ano: 2024, nivel: 'Nível 2', fase: 2, nome: 'Ginástica', dificuldade: 'Médio', conteudo: 'Simulação, Arrays' },
+    { ano: 2024, nivel: 'Nível 2', fase: 2, nome: 'Figurinhas da Copa', dificuldade: 'Médio', conteudo: 'Estruturas de Dados, Contagem' },
+    { ano: 2024, nivel: 'Nível 2', fase: 2, nome: 'Rede Social', dificuldade: 'Difícil', conteudo: 'Grafos (DFS/BFS)' },
+    { ano: 2024, nivel: 'Nível 2', fase: 2, nome: 'Torres de Hanói', dificuldade: 'Difícil', conteudo: 'Recursão, Análise Matemática' },
+    { ano: 2023, nivel: 'Júnior', fase: 1, nome: 'Idades', dificuldade: 'Fácil', conteudo: 'Condicionais, Aritmética' },
+    { ano: 2023, nivel: 'Júnior', fase: 1, nome: 'Toupeira', dificuldade: 'Fácil', conteudo: 'Simulação em Grid, Loops' },
+    { ano: 2023, nivel: 'Júnior', fase: 1, nome: 'Zerinho', dificuldade: 'Fácil', conteudo: 'Contagem, Condicionais' },
+    { ano: 2023, nivel: 'Nível 1', fase: 1, nome: 'Estoque', dificuldade: 'Fácil', conteudo: 'Aritmética, Condicionais' },
+    { ano: 2023, nivel: 'Nível 1', fase: 1, nome: 'Subsequência', dificuldade: 'Médio', conteudo: 'Loops, Subarrays' },
+    { ano: 2023, nivel: 'Nível 1', fase: 1, nome: 'Toupeira', dificuldade: 'Fácil', conteudo: 'Simulação em Grid, Loops' },
+    { ano: 2023, nivel: 'Nível 2', fase: 1, nome: 'Estoque', dificuldade: 'Fácil', conteudo: 'Aritmética, Condicionais' },
+    { ano: 2023, nivel: 'Nível 2', fase: 1, nome: 'Guarda Costeira', dificuldade: 'Médio', conteudo: 'Geometria, Loops' },
+    { ano: 2023, nivel: 'Nível 2', fase: 1, nome: 'Lanche', dificuldade: 'Médio', conteudo: 'Algoritmo Guloso, Ordenação' },
+    { ano: 2023, nivel: 'Nível 2', fase: 1, nome: 'Mapa', dificuldade: 'Difícil', conteudo: 'Grafos (BFS/DFS)' },
+    { ano: 2023, nivel: 'Júnior', fase: 2, nome: 'Chuva', dificuldade: 'Fácil', conteudo: 'Simulação, Arrays' },
+    { ano: 2023, nivel: 'Júnior', fase: 2, nome: 'Embarque', dificuldade: 'Médio', conteudo: 'Filas, Simulação' },
+    { ano: 2023, nivel: 'Júnior', fase: 2, nome: 'Lâmpadas', dificuldade: 'Médio', conteudo: 'Lógica, Bitmasks' },
+    { ano: 2023, nivel: 'Nível 1', fase: 2, nome: 'Chuva', dificuldade: 'Fácil', conteudo: 'Simulação, Arrays' },
+    { ano: 2023, nivel: 'Nível 1', fase: 2, nome: 'Embarque', dificuldade: 'Médio', conteudo: 'Filas, Simulação' },
+    { ano: 2023, nivel: 'Nível 1', fase: 2, nome: 'Lâmpadas', dificuldade: 'Médio', conteudo: 'Lógica, Bitmasks' },
+    { ano: 2023, nivel: 'Nível 1', fase: 2, nome: 'Robô', dificuldade: 'Médio', conteudo: 'Simulação em Grid, Loops' },
+    { ano: 2023, nivel: 'Nível 2', fase: 2, nome: 'Compressor RLE', dificuldade: 'Médio', conteudo: 'Manipulação de Strings, Contagem' },
+    { ano: 2023, nivel: 'Nível 2', fase: 2, nome: 'Dominó', dificuldade: 'Médio', conteudo: 'Backtracking' },
+    { ano: 2023, nivel: 'Nível 2', fase: 2, nome: 'Inscritos', dificuldade: 'Difícil', conteudo: 'Estruturas de Dados, Ordenação' },
+    { ano: 2023, nivel: 'Nível 2', fase: 2, nome: 'Túneis', dificuldade: 'Difícil', conteudo: 'Grafos (Dijkstra)' },
+    { ano: 2023, nivel: 'Júnior', fase: 3, nome: 'Corrida', dificuldade: 'Médio', conteudo: 'Simulação, Loops' },
+    { ano: 2023, nivel: 'Júnior', fase: 3, nome: 'Fila de ingressos', dificuldade: 'Médio', conteudo: 'Simulação de Fila, Arrays' },
+    { ano: 2023, nivel: 'Júnior', fase: 3, nome: 'Torres', dificuldade: 'Médio', conteudo: 'Lógica, Análise de Padrões' },
+    { ano: 2023, nivel: 'Nível 1', fase: 3, nome: 'Cabo de Guerra', dificuldade: 'Médio', conteudo: 'Força Bruta, Loops' },
+    { ano: 2023, nivel: 'Nível 1', fase: 3, nome: 'Digitais', dificuldade: 'Médio', conteudo: 'Manipulação de Strings, Comparação' },
+    { ano: 2023, nivel: 'Nível 1', fase: 3, nome: 'Robótica', dificuldade: 'Difícil', conteudo: 'Grafos (BFS), Simulação em grid' },
+    { ano: 2023, nivel: 'Nível 2', fase: 3, nome: 'Altruísmo', dificuldade: 'Difícil', conteudo: 'Programação Dinâmica' },
+    { ano: 2023, nivel: 'Nível 2', fase: 3, nome: 'Chaves', dificuldade: 'Muito Difícil', conteudo: 'Grafos, Union-Find' },
+    { ano: 2023, nivel: 'Nível 2', fase: 3, nome: 'Investimento', dificuldade: 'Difícil', conteudo: 'Programação Dinâmica' },
+    { ano: 2022, nivel: 'Júnior', fase: 1, nome: 'Cinema', dificuldade: 'Fácil', conteudo: 'Condicionais' },
+    { ano: 2022, nivel: 'Júnior', fase: 1, nome: 'Hotel', dificuldade: 'Fácil', conteudo: 'Condicionais, Aritmética' },
+    { ano: 2022, nivel: 'Júnior', fase: 1, nome: 'Show', dificuldade: 'Fácil', conteudo: 'Loops, Contagem' },
+    { ano: 2022, nivel: 'Júnior', fase: 1, nome: 'Caça ao Tesouro', dificuldade: 'Fácil', conteudo: 'Matrizes, Simulação' },
+    { ano: 2022, nivel: 'Nível 1', fase: 1, nome: 'Hotel', dificuldade: 'Fácil', conteudo: 'Condicionais, Aritmética' },
+    { ano: 2022, nivel: 'Nível 1', fase: 1, nome: 'Bombom', dificuldade: 'Médio', conteudo: 'Strings, Contagem, Loops' },
+    { ano: 2022, nivel: 'Nível 1', fase: 1, nome: 'Maior Valor', dificuldade: 'Médio', conteudo: 'Strings, Loops, Manipulação de números' },
+    { ano: 2022, nivel: 'Nível 1', fase: 1, nome: 'Dona Formiga', dificuldade: 'Médio', conteudo: 'Simulação em grid' },
+    { ano: 2022, nivel: 'Nível 2', fase: 1, nome: 'Hotel', dificuldade: 'Fácil', conteudo: 'Estruturas Condicionais, Lógica' },
+    { ano: 2022, nivel: 'Nível 2', fase: 1, nome: 'Bombom', dificuldade: 'Médio', conteudo: 'Strings, Contagem, Loops' },
+    { ano: 2022, nivel: 'Nível 2', fase: 1, nome: 'Maior Valor', dificuldade: 'Médio', conteudo: 'Strings, Loops, Manipulação de números' },
+    { ano: 2022, nivel: 'Nível 2', fase: 1, nome: 'Parque de Diversões', dificuldade: 'Médio', conteudo: 'Grafos (BFS/DFS)' },
+    { ano: 2022, nivel: 'Júnior', fase: 2, nome: 'Basquete', dificuldade: 'Fácil', conteudo: 'Simulação, Arrays' },
+    { ano: 2022, nivel: 'Júnior', fase: 2, nome: 'Escada', dificuldade: 'Médio', conteudo: 'Programação Dinâmica' },
+    { ano: 2022, nivel: 'Júnior', fase: 2, nome: 'Robô Colecionador', dificuldade: 'Médio', conteudo: 'Simulação em grid, Loops' },
+    { ano: 2022, nivel: 'Nível 1', fase: 2, nome: 'Troféu', dificuldade: 'Médio', conteudo: 'Geometria, Ordenação' },
+    { ano: 2022, nivel: 'Nível 1', fase: 2, nome: 'Caminho', dificuldade: 'Médio', conteudo: 'Grafos (BFS/DFS)' },
+    { ano: 2022, nivel: 'Nível 1', fase: 2, nome: 'Pirâmide', dificuldade: 'Médio', conteudo: 'Contagem, Padrões' },
+    { ano: 2022, nivel: 'Nível 2', fase: 2, nome: 'Troféu', dificuldade: 'Médio', conteudo: 'Geometria, Ordenação' },
+    { ano: 2022, nivel: 'Nível 2', fase: 2, nome: 'Caminho', dificuldade: 'Médio', conteudo: 'Grafos (BFS/DFS)' },
+    { ano: 2022, nivel: 'Nível 2', fase: 2, nome: 'Pirâmide', dificuldade: 'Difícil', conteudo: 'Programação Dinâmica' },
+    { ano: 2022, nivel: 'Júnior', fase: 3, nome: 'Jogo', dificuldade: 'Médio', conteudo: 'Simulação, Lógica de jogo' },
+    { ano: 2022, nivel: 'Júnior', fase: 3, nome: 'Recibo', dificuldade: 'Médio', conteudo: 'Manipulação de Strings, Formatação' },
+    { ano: 2022, nivel: 'Júnior', fase: 3, nome: 'Sequência', dificuldade: 'Médio', conteudo: 'Análise de Padrões, Matemática' },
+    { ano: 2022, nivel: 'Nível 1', fase: 3, nome: 'Chaves', dificuldade: 'Médio', conteudo: 'Grafos (Árvores)' },
+    { ano: 2022, nivel: 'Nível 1', fase: 3, nome: 'Lista', dificuldade: 'Difícil', conteudo: 'Estruturas de Dados, Simulação' },
+    { ano: 2022, nivel: 'Nível 1', fase: 3, nome: 'Subcadeias', dificuldade: 'Difícil', conteudo: 'Programação Dinâmica, String Matching' },
+    { ano: 2022, nivel: 'Nível 2', fase: 3, nome: 'Caminho Nível', dificuldade: 'Difícil', conteudo: 'Grafos (Dijkstra)' },
+    { ano: 2022, nivel: 'Nível 2', fase: 3, nome: 'Fechadura', dificuldade: 'Muito Difícil', conteudo: 'Bitmask DP, Grafos' },
+    { ano: 2022, nivel: 'Nível 2', fase: 3, nome: 'Robôs', dificuldade: 'Muito Difícil', conteudo: 'Geometria Computacional' },
+    { ano: 2021, nivel: 'Júnior', fase: 1, nome: 'Idade de Dona Mônica', dificuldade: 'Fácil', conteudo: 'Aritmética, Condicionais' },
+    { ano: 2021, nivel: 'Júnior', fase: 1, nome: 'Plano de Internet', dificuldade: 'Fácil', conteudo: 'Aritmética, Loops' },
+    { ano: 2021, nivel: 'Júnior', fase: 1, nome: 'Zero para Cancelar', dificuldade: 'Fácil', conteudo: 'Pilha, Lógica' },
+    { ano: 2021, nivel: 'Nível 1', fase: 1, nome: 'Baralho', dificuldade: 'Fácil', conteudo: 'Contagem, Arrays' },
+    { ano: 2021, nivel: 'Nível 1', fase: 1, nome: 'Cifra da Nlogônia', dificuldade: 'Fácil', conteudo: 'Manipulação de Strings, Mapeamento' },
+    { ano: 2021, nivel: 'Nível 1', fase: 1, nome: 'Tempo de Resposta', dificuldade: 'Médio', conteudo: 'Simulação, Estruturas de Dados' },
+    { ano: 2021, nivel: 'Nível 2', fase: 1, nome: 'Lista de Chamada', dificuldade: 'Médio', conteudo: 'Ordenação, Strings' },
+    { ano: 2021, nivel: 'Nível 2', fase: 1, nome: 'Sanduíche', dificuldade: 'Médio', conteudo: 'Janela Deslizante' },
+    { ano: 2021, nivel: 'Nível 2', fase: 1, nome: 'Torre', dificuldade: 'Médio', conteudo: 'Programação Dinâmica' },
+    { ano: 2021, nivel: 'Júnior', fase: 2, nome: 'Duplas de Tênis', dificuldade: 'Fácil', conteudo: 'Ordenação, Lógica' },
+    { ano: 2021, nivel: 'Júnior', fase: 2, nome: 'Mínimo e Máximo', dificuldade: 'Fácil', conteudo: 'Loops, Comparação' },
+    { ano: 2021, nivel: 'Júnior', fase: 2, nome: 'Potências', dificuldade: 'Médio', conteudo: 'Matemática, Loops' },
+    { ano: 2021, nivel: 'Nível 1', fase: 2, nome: 'Anagrama', dificuldade: 'Médio', conteudo: 'Ordenação, Strings' },
+    { ano: 2021, nivel: 'Nível 1', fase: 2, nome: 'Frequência na Aula', dificuldade: 'Médio', conteudo: 'Estruturas de Dados, Simulação' },
+    { ano: 2021, nivel: 'Nível 1', fase: 2, nome: 'Recorde', dificuldade: 'Médio', conteudo: 'Loops, Variáveis de controle' },
+    { ano: 2021, nivel: 'Nível 1', fase: 2, nome: 'Acelera Nlogônia', dificuldade: 'Médio', conteudo: 'Simulação, Lógica' },
+    { ano: 2021, nivel: 'Nível 1', fase: 2, nome: 'Casamento de Inteiros', dificuldade: 'Médio', conteudo: 'Manipulação de Strings' },
+    { ano: 2021, nivel: 'Nível 1', fase: 2, nome: 'Móbile', dificuldade: 'Médio', conteudo: 'Recursão, Árvores' },
+    { ano: 2021, nivel: 'Nível 2', fase: 2, nome: 'Cidade Nlogônia', dificuldade: 'Difícil', conteudo: 'Grafos (PD em DAG)' },
+    { ano: 2021, nivel: 'Nível 2', fase: 2, nome: 'Passatempo', dificuldade: 'Médio', conteudo: 'Backtracking' },
+    { ano: 2021, nivel: 'Nível 2', fase: 2, nome: 'Rede de Transmissão', dificuldade: 'Difícil', conteudo: 'Árvore Geradora Mínima' },
+    { ano: 2021, nivel: 'Nível 2', fase: 2, nome: 'Caminho das Pontes', dificuldade: 'Difícil', conteudo: 'Grafos (Componentes Fortemente Conexas)' },
+    { ano: 2021, nivel: 'Nível 2', fase: 2, nome: 'Festa Olímpica', dificuldade: 'Difícil', conteudo: 'Programação Dinâmica' },
+    { ano: 2021, nivel: 'Nível 2', fase: 2, nome: 'Polígonos', dificuldade: 'Muito Difícil', conteudo: 'Geometria Computacional' },
+    { ano: 2021, nivel: 'Júnior', fase: 3, nome: 'Adivinha', dificuldade: 'Médio', conteudo: 'Busca Binária, Lógica Interativa' },
+    { ano: 2021, nivel: 'Júnior', fase: 3, nome: 'Retângulo', dificuldade: 'Médio', conteudo: 'Geometria, Loops' },
+    { ano: 2021, nivel: 'Júnior', fase: 3, nome: 'Robô', dificuldade: 'Médio', conteudo: 'Simulação em Grid, Grafos (BFS)' },
+    { ano: 2021, nivel: 'Nível 1', fase: 3, nome: 'Contas Alternadas', dificuldade: 'Médio', conteudo: 'Programação Dinâmica' },
+    { ano: 2021, nivel: 'Nível 1', fase: 3, nome: 'Escalonamento', dificuldade: 'Difícil', conteudo: 'Algoritmo Guloso, Ordenação' },
+    { ano: 2021, nivel: 'Nível 1', fase: 3, nome: 'Xadrez Aleatório', dificuldade: 'Difícil', conteudo: 'Backtracking, Análise Combinatória' },
+    { ano: 2021, nivel: 'Nível 2', fase: 3, nome: 'Estrada', dificuldade: 'Muito Difícil', conteudo: 'Grafos (Fluxo Máximo)' },
+    { ano: 2021, nivel: 'Nível 2', fase: 3, nome: 'Muro', dificuldade: 'Muito Difícil', conteudo: 'Programação Dinâmica em Árvores' },
+    { ano: 2021, nivel: 'Nível 2', fase: 3, nome: 'Pintura', dificuldade: 'Muito Difícil', conteudo: 'Teoria dos Jogos' },
+];
+
+document.addEventListener('DOMContentLoaded', () => {
+    const state = {
+        filters: {
+            years: [],
+            levels: [],
+            phases: [],
+            difficulties: [],
+            search: ''
+        },
+        sort: {
+            column: 'ano',
+            direction: 'asc'
+        }
+    };
+    
+    let difficultyChart, contentChart;
+    const difficultyMap = { 'Fácil': 1, 'Médio': 2, 'Difícil': 3, 'Muito Difícil': 4 };
+    const difficultyColors = { 'Fácil': '#2dd4bf', 'Médio': '#fbbf24', 'Difícil': '#f87171', 'Muito Difícil': '#9333ea' };
+
+    function getUniqueValues(key) {
+        const values = OBI_DATA.map(item => item[key]);
+        return [...new Set(values)].sort((a, b) => {
+            if(key === 'dificuldade') return difficultyMap[a] - difficultyMap[b];
+            return String(a).localeCompare(String(b));
+        });
+    }
+
+    function createFilterGroup(containerId, items, filterKey) {
+        const container = document.getElementById(containerId);
+        items.forEach(item => {
+            const wrapper = document.createElement('div');
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.id = `${filterKey}-${item}`;
+            input.value = item;
+            input.className = 'sr-only filter-checkbox';
+            input.dataset.filter = filterKey;
+            
+            const label = document.createElement('label');
+            label.htmlFor = input.id;
+            label.textContent = item;
+            label.className = 'block cursor-pointer px-3 py-1 border border-slate-300 rounded-full text-sm font-medium text-slate-700 transition-colors';
+
+            wrapper.appendChild(input);
+            wrapper.appendChild(label);
+            container.appendChild(wrapper);
+        });
+    }
+
+    function applyFilters() {
+        let filteredData = [...OBI_DATA];
+
+        if (state.filters.years.length) {
+            filteredData = filteredData.filter(d => state.filters.years.includes(String(d.ano)));
+        }
+        if (state.filters.levels.length) {
+            filteredData = filteredData.filter(d => state.filters.levels.includes(d.nivel));
+        }
+        if (state.filters.phases.length) {
+            filteredData = filteredData.filter(d => state.filters.phases.includes(String(d.fase)));
+        }
+        if (state.filters.difficulties.length) {
+            filteredData = filteredData.filter(d => state.filters.difficulties.includes(d.dificuldade));
+        }
+        if (state.filters.search) {
+            const searchTerm = state.filters.search.toLowerCase();
+            filteredData = filteredData.filter(d => d.nome.toLowerCase().includes(searchTerm) || d.conteudo.toLowerCase().includes(searchTerm));
+        }
+
+        sortData(filteredData);
+        updateUI(filteredData);
+    }
+
+    function sortData(data) {
+        const { column, direction } = state.sort;
+        data.sort((a, b) => {
+            let valA = a[column];
+            let valB = b[column];
+
+            if (column === 'dificuldade') {
+                valA = difficultyMap[valA] || 0;
+                valB = difficultyMap[valB] || 0;
+            }
+
+            let comparison = 0;
+            if (valA > valB) {
+                comparison = 1;
+            } else if (valA < valB) {
+                comparison = -1;
+            }
+            return direction === 'asc' ? comparison : -comparison;
+        });
+    }
+
+    function updateUI(data) {
+        updateStats(data);
+        updateTable(data);
+        updateDifficultyChart(data);
+        updateContentChart(data);
+    }
+    
+    function updateStats(data) {
+        document.getElementById('total-exercises').textContent = data.length;
+
+        if (data.length > 0) {
+            const totalDifficulty = data.reduce((acc, item) => acc + (difficultyMap[item.dificuldade] || 0), 0);
+            const avg = totalDifficulty / data.length;
+            const avgText = Object.keys(difficultyMap).find(key => difficultyMap[key] >= avg) || 'N/A';
+            document.getElementById('avg-difficulty').textContent = avgText;
+
+            const contentCounts = data.flatMap(d => d.conteudo.split(/, | \/ /))
+                .reduce((acc, topic) => {
+                    const cleanTopic = topic.trim();
+                    acc[cleanTopic] = (acc[cleanTopic] || 0) + 1;
+                    return acc;
+                }, {});
+            const mostCommon = Object.entries(contentCounts).sort((a, b) => b[1] - a[1])[0];
+            document.getElementById('most-common-topic').textContent = mostCommon ? mostCommon[0] : 'N/A';
+        } else {
+            document.getElementById('avg-difficulty').textContent = 'N/A';
+            document.getElementById('most-common-topic').textContent = 'N/A';
+        }
+    }
+
+    function updateTable(data) {
+        const tableBody = document.getElementById('table-body');
+        tableBody.innerHTML = '';
+        data.forEach(item => {
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-slate-50 transition-colors';
+            row.innerHTML = `
+                <td class="py-3 px-4 text-sm">${item.ano}</td>
+                <td class="py-3 px-4 text-sm">${item.nivel}</td>
+                <td class="py-3 px-4 text-sm">${item.fase}</td>
+                <td class="py-3 px-4 text-sm font-medium">${item.nome}</td>
+                <td class="py-3 px-4 text-sm"><span class="px-2 py-1 rounded-full text-xs font-semibold" style="color: ${difficultyColors[item.dificuldade]}; background-color: ${difficultyColors[item.dificuldade]}20;">${item.dificuldade}</span></td>
+                <td class="py-3 px-4 text-sm text-slate-600">${item.conteudo}</td>
+            `;
+            tableBody.appendChild(row);
+        });
+    }
+
+    function updateDifficultyChart(data) {
+        const ctx = document.getElementById('difficulty-chart').getContext('2d');
+        const difficultyCounts = data.reduce((acc, item) => {
+            acc[item.dificuldade] = (acc[item.dificuldade] || 0) + 1;
+            return acc;
+        }, {});
+
+        const sortedLabels = Object.keys(difficultyCounts).sort((a,b) => difficultyMap[a] - difficultyMap[b]);
+        const chartData = sortedLabels.map(label => difficultyCounts[label]);
+        const chartColors = sortedLabels.map(label => difficultyColors[label]);
+
+        if (difficultyChart) difficultyChart.destroy();
+        difficultyChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: sortedLabels,
+                datasets: [{
+                    data: chartData,
+                    backgroundColor: chartColors,
+                    borderColor: '#ffffff',
+                    borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { font: { size: 12 } } },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.label || '';
+                                if (label) label += ': ';
+                                if (context.parsed !== null) {
+                                    label += context.parsed;
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function updateContentChart(data) {
+        const ctx = document.getElementById('content-chart').getContext('2d');
+        const contentCounts = data
+            .flatMap(d => d.conteudo.split(/, | \/ /).map(t => t.trim()))
+            .reduce((acc, topic) => {
+                if (topic) {
+                   acc[topic] = (acc[topic] || 0) + 1;
+                }
+                return acc;
+            }, {});
+
+        const sortedContent = Object.entries(contentCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+
+        if (contentChart) contentChart.destroy();
+        contentChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: sortedContent.map(item => item[0]),
+                datasets: [{
+                    label: 'Frequência',
+                    data: sortedContent.map(item => item[1]),
+                    backgroundColor: '#0d9488',
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                     x: { beginAtZero: true, ticks: { precision: 0 } },
+                     y: { ticks: {
+                        callback: function(value, index, values) {
+                            const label = this.getLabelForValue(value);
+                            return label.length > 20 ? label.substring(0, 20) + '...' : label;
+                        }
+                     }}
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+
+    function setupEventListeners() {
+        document.querySelectorAll('input[type="checkbox"][data-filter]').forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                const filterKey = checkbox.dataset.filter;
+                state.filters[filterKey] = Array.from(document.querySelectorAll(`input[data-filter="${filterKey}"]:checked`)).map(cb => cb.value);
+                applyFilters();
+            });
+        });
+
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            state.filters.search = e.target.value;
+            applyFilters();
+        });
+
+        document.getElementById('reset-filters').addEventListener('click', () => {
+            document.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+            document.getElementById('search-input').value = '';
+            state.filters = { years: [], levels: [], phases: [], difficulties: [], search: '' };
+            applyFilters();
+        });
+
+        document.querySelectorAll('.table-sortable th').forEach(header => {
+            header.addEventListener('click', () => {
+                const column = header.dataset.sort;
+                if (state.sort.column === column) {
+                    state.sort.direction = state.sort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    state.sort.column = column;
+                    state.sort.direction = 'asc';
+                }
+                applyFilters();
+            });
+        });
+    }
+
+    function init() {
+        createFilterGroup('year-filter', getUniqueValues('ano'), 'years');
+        createFilterGroup('level-filter', getUniqueValues('nivel'), 'levels');
+        createFilterGroup('phase-filter', getUniqueValues('fase'), 'phases');
+        createFilterGroup('difficulty-filter', getUniqueValues('dificuldade'), 'difficulties');
+        
+        setupEventListeners();
+        applyFilters();
+    }
+    
+    init();
+});
+
+function changeTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.add('hidden');
+    });
+    document.querySelectorAll('[data-tab-toggle]').forEach(button => {
+        button.classList.remove('active', 'border-teal-600');
+    });
+
+    document.getElementById(tabId).classList.remove('hidden');
+    document.querySelector(`[onclick="changeTab('${tabId}')"]`).classList.add('active', 'border-teal-600');
+}
+</script>
+
+</body>
+</html>
